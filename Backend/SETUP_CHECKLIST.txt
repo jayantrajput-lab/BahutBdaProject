@@ -1,0 +1,131 @@
+╔════════════════════════════════════════════════════════════════╗
+║          MySQL Setup Checklist - Banking Parser App           ║
+╚════════════════════════════════════════════════════════════════╝
+
+STEP 1: CREATE DATABASE
+□ Open MySQL Workbench
+□ Click "Create a new schema" button (cylinder icon with +)
+□ Enter name: bankingdb
+□ Click Apply → Apply → Finish
+□ Verify database appears in left panel
+
+STEP 2: CONFIGURE PASSWORD
+□ Open: src/main/resources/application.properties
+□ Find line: spring.datasource.password=
+□ If your MySQL has a password, add it after the = sign
+□ Save file
+
+STEP 3: INSTALL DEPENDENCIES
+□ Open terminal in project directory
+□ Run: ./mvnw clean install
+□ Wait for "BUILD SUCCESS" message
+
+STEP 4: START APPLICATION
+□ Run: ./mvnw spring-boot:run
+□ Look for: "Started BankingParserApplication"
+□ Check for: "HikariPool-1 - Start completed"
+□ No errors in console
+
+STEP 5: CREATE USERS
+Choose ONE option:
+
+Option A - Using API (Recommended):
+□ Run these curl commands:
+
+  # Admin user
+  curl -X POST http://localhost:8080/auth/signup \
+    -H "Content-Type: application/json" \
+    -d '{"username":"userA","password":"a123","role":"ADMIN"}'
+
+  # Regular users
+  curl -X POST http://localhost:8080/auth/signup \
+    -H "Content-Type: application/json" \
+    -d '{"username":"userB","password":"b123","role":"USER"}'
+
+  curl -X POST http://localhost:8080/auth/signup \
+    -H "Content-Type: application/json" \
+    -d '{"username":"userC","password":"c123","role":"USER"}'
+
+Option B - Using SQL Script:
+□ Open MySQL Workbench
+□ Open file: init-mysql-data.sql
+□ Execute script (⚡ icon)
+
+STEP 6: TEST LOGIN
+□ Run this command:
+
+  curl -X POST http://localhost:8080/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"userA","password":"a123"}'
+
+□ Should receive JWT token in response
+
+STEP 7: VERIFY DATA PERSISTENCE
+□ Stop application (Ctrl+C)
+□ Start application again
+□ Login with same user
+□ Success! Data persisted ✓
+
+STEP 8: VIEW DATA IN MYSQL WORKBENCH
+□ Open MySQL Workbench
+□ Connect to localhost
+□ Select bankingdb schema
+□ Right-click user_table → "Select Rows - Limit 1000"
+□ See your users listed
+
+╔════════════════════════════════════════════════════════════════╗
+║                      TROUBLESHOOTING                           ║
+╚════════════════════════════════════════════════════════════════╝
+
+Problem: "Unknown database 'bankingdb'"
+→ Go back to Step 1, create the database
+
+Problem: "Access denied for user 'root'"
+→ Go back to Step 2, add your MySQL password
+
+Problem: "Communications link failure"
+→ Start MySQL server in MySQL Workbench
+
+Problem: Application won't start
+→ Check console for error messages
+→ Verify MySQL is running
+→ Verify database exists
+
+╔════════════════════════════════════════════════════════════════╗
+║                      QUICK REFERENCE                           ║
+╚════════════════════════════════════════════════════════════════╝
+
+Database Name: bankingdb
+Username: root
+Port: 3306
+Host: localhost
+
+View data in terminal:
+  /usr/local/mysql-8.0.45-macos15-arm64/bin/mysql -u root -p
+  USE bankingdb;
+  SELECT * FROM user_table;
+
+Start application:
+  ./mvnw spring-boot:run
+
+Test signup:
+  curl -X POST http://localhost:8080/auth/signup \
+    -H "Content-Type: application/json" \
+    -d '{"username":"test","password":"test123","role":"USER"}'
+
+Test login:
+  curl -X POST http://localhost:8080/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"username":"test","password":"test123"}'
+
+╔════════════════════════════════════════════════════════════════╗
+║                    SETUP COMPLETE! 🎉                          ║
+╚════════════════════════════════════════════════════════════════╝
+
+Your application now uses MySQL for persistent data storage.
+Data will survive application restarts.
+
+For detailed information, see:
+- MYSQL_QUICK_START.md
+- MYSQL_SETUP_GUIDE.md
+- MIGRATION_SUMMARY.md

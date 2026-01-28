@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* White/Green Theme Design System */
+
+@layer base {
+  :root {
+    /* Light mode - White/Forest Green theme (matching Moneyview logo) */
+    --background: 0 0% 100%;
+    --foreground: 162 40% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 162 40% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 162 40% 12%;
+
+    /* Primary - Forest Green (matches logo #1B5E4A) */
+    --primary: 162 54% 24%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Light forest green tint */
+    --secondary: 162 30% 95%;
+    --secondary-foreground: 162 45% 20%;
+
+    /* Muted - Soft green-gray */
+    --muted: 160 15% 96%;
+    --muted-foreground: 162 20% 40%;
+
+    /* Accent - Light forest green */
+    --accent: 162 40% 92%;
+    --accent-foreground: 162 50% 22%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 162 15% 88%;
+    --input: 162 15% 88%;
+    --ring: 162 54% 24%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 162 25% 98%;
+    --sidebar-foreground: 162 30% 18%;
+    --sidebar-primary: 162 54% 24%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 162 30% 94%;
+    --sidebar-accent-foreground: 162 45% 20%;
+    --sidebar-border: 162 15% 90%;
+    --sidebar-ring: 162 54% 24%;
+  }
+
+  .dark {
+    /* Dark mode - Dark forest green theme (matching Moneyview logo) */
+    --background: 162 30% 7%;
+    --foreground: 162 15% 95%;
+
+    --card: 162 30% 9%;
+    --card-foreground: 162 15% 95%;
+
+    --popover: 162 30% 9%;
+    --popover-foreground: 162 15% 95%;
+
+    /* Primary - Lighter forest green for dark mode visibility */
+    --primary: 162 50% 40%;
+    --primary-foreground: 162 30% 7%;
+
+    /* Secondary */
+    --secondary: 162 30% 16%;
+    --secondary-foreground: 162 15% 90%;
+
+    /* Muted */
+    --muted: 162 25% 14%;
+    --muted-foreground: 162 12% 60%;
+
+    /* Accent */
+    --accent: 162 30% 18%;
+    --accent-foreground: 162 45% 70%;
+
+    --destructive: 0 62% 40%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 162 25% 16%;
+    --input: 162 25% 16%;
+    --ring: 162 50% 40%;
+
+    --sidebar-background: 162 30% 5%;
+    --sidebar-foreground: 162 15% 90%;
+    --sidebar-primary: 162 50% 40%;
+    --sidebar-primary-foreground: 162 30% 7%;
+    --sidebar-accent: 162 30% 14%;
+    --sidebar-accent-foreground: 162 15% 90%;
+    --sidebar-border: 162 25% 14%;
+    --sidebar-ring: 162 50% 40%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom scrollbar for dark mode */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: hsl(162 30% 9%);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: hsl(162 30% 22%);
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: hsl(162 30% 32%);
+}
