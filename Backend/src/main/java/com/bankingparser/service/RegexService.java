@@ -1,5 +1,7 @@
 package com.bankingparser.service;
 
+import com.bankingparser.dto.BulkSmsRequest;
+import com.bankingparser.dto.BulkSmsResponse;
 import com.bankingparser.dto.ExtractedFieldsResponse;
 import com.bankingparser.model.Bank;
 import com.bankingparser.model.Pattern;
@@ -9,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 
@@ -20,6 +23,9 @@ public class RegexService {
 
     @Autowired
     private BankRepository bankRepository;
+
+    @Autowired
+    private MerchantCategoryService merchantCategoryService;
 
     /**
      * Extract fields from SMS using provided regex pattern
@@ -46,13 +52,14 @@ public class RegexService {
     /**
      * Find matching pattern from DB and extract fields
      * First finds bank from smsTitle, then matches patterns for that bank only
+     * If no pattern matches, saves the SMS as a FAILED pattern for review
      */
     public ExtractedFieldsResponse findPattern(String sms, String smsTitle) {
         // Step 1: Find bank from smsTitle
         List<Bank> allBanks = bankRepository.findAll();
         Bank matchedBank = null;
 
-        String upperTitle = smsTitle.toUpperCase();
+        String upperTitle = smsTitle != null ? smsTitle.toUpperCase() : "";
         for (Bank bank : allBanks) {
             if (upperTitle.contains(bank.getBankname().toUpperCase())) {
                 matchedBank = bank;
@@ -61,14 +68,18 @@ public class RegexService {
         }
 
         if (matchedBank == null) {
-            return ExtractedFieldsResponse.notMatched("No bank found in SMS title: " + smsTitle);
+            // Save as FAILED pattern with no bank
+            saveFailedPattern(sms, smsTitle, null);
+            return ExtractedFieldsResponse.notMatched("No bank found in SMS title: " + smsTitle + ". SMS saved as FAILED pattern.");
         }
 
         // Step 2: Get approved patterns for this bank only
         List<Pattern> bankPatterns = patternRepository.findByBankIdAndStatus(matchedBank.getBankId(), "APPROVED");
 
         if (bankPatterns.isEmpty()) {
-            return ExtractedFieldsResponse.notMatched("No approved patterns found for bank: " + matchedBank.getBankname());
+            // Save as FAILED pattern
+            saveFailedPattern(sms, smsTitle, matchedBank);
+            return ExtractedFieldsResponse.notMatched("No approved patterns found for bank: " + matchedBank.getBankname() + ". SMS saved as FAILED pattern.");
         }
 
         // Step 3: Try to match patterns
@@ -111,8 +122,18 @@ public class RegexService {
                         response.setMsgType(pattern.getMsgType());
                         response.setParsedMsgType(false);
                     }
-                    if (response.getMsgSubtype() == null && pattern.getMsgSubtype() != null) {
-                        response.setMsgSubtype(pattern.getMsgSubtype());
+                    
+                    // Auto-detect msgSubtype (category) from merchant name
+                    // Always lookup from merchantCategory table (and API if not found)
+                    if (response.getMerchantName() != null) {
+                        String autoCategory = merchantCategoryService.getCategoryForMerchant(response.getMerchantName());
+                        if (autoCategory != null) {
+                            response.setMsgSubtype(autoCategory);
+                            response.setParsedMsgSubtype(true); // Auto-detected from merchant
+                        }
+                    }
+                    // If still null (no merchant name extracted), leave it null
+                    if (response.getMsgSubtype() == null) {
                         response.setParsedMsgSubtype(false);
                     }
                     return response;
@@ -123,7 +144,30 @@ public class RegexService {
             }
         }
 
-        return ExtractedFieldsResponse.notMatched("No matching pattern found for SMS from bank: " + matchedBank.getBankname());
+        // No pattern matched - save as FAILED
+        saveFailedPattern(sms, smsTitle, matchedBank);
+        return ExtractedFieldsResponse.notMatched("No matching pattern found for SMS from bank: " + matchedBank.getBankname() + ". SMS saved as FAILED pattern.");
+    }
+
+    /**
+     * Save a failed SMS as a pattern with status FAILED for the Maker to review
+     */
+    private void saveFailedPattern(String sms, String smsTitle, Bank bank) {
+        Pattern failedPattern = new Pattern();
+        failedPattern.setSample(sms);
+        failedPattern.setPattern(""); // No pattern yet - Maker needs to create one
+        failedPattern.setStatus("FAILED");
+        failedPattern.setSmsTitle(smsTitle); // Save smsTitle
+        
+        if (bank != null) {
+            failedPattern.setBankId(bank.getBankId());
+            failedPattern.setBankName(bank.getBankname());
+        } else if (smsTitle != null && !smsTitle.isEmpty()) {
+            // Store smsTitle as bankName for reference
+            failedPattern.setBankName(smsTitle);
+        }
+        
+        patternRepository.save(failedPattern);
     }
 
     private ExtractedFieldsResponse buildResponse(Matcher matcher, Pattern pattern) {
@@ -184,6 +228,140 @@ public class RegexService {
             response.setAvailableBalance(new BigDecimal(balStr));
         } catch (Exception e) { /* skip */ }
 
+        // Extract reference number
+        try {
+            response.setReferenceNo(matcher.group("referenceNumber"));
+        } catch (Exception e) {
+            try {
+                response.setReferenceNo(matcher.group("refNo"));
+            } catch (Exception ex) { /* skip */ }
+        }
+
         return response;
+    }
+
+    /**
+     * Process multiple SMS messages in bulk
+     * Returns results for all SMS - both matched and failed
+     * Does NOT save failed patterns to DB (unlike findPattern)
+     */
+    public BulkSmsResponse processBulkSms(BulkSmsRequest request) {
+        List<BulkSmsResponse.SmsResult> results = new ArrayList<>();
+        int successCount = 0;
+        int failedCount = 0;
+
+        for (int i = 0; i < request.getSmsList().size(); i++) {
+            BulkSmsRequest.SmsItem item = request.getSmsList().get(i);
+            String smsTitle = item.getSmsTitle();
+            String sms = item.getSms();
+
+            try {
+                // Try to find matching pattern (without saving failed ones)
+                ExtractedFieldsResponse extracted = findPatternForBulk(sms, smsTitle);
+                
+                if (extracted.isMatched()) {
+                    results.add(BulkSmsResponse.SmsResult.success(i, smsTitle, sms, extracted));
+                    successCount++;
+                } else {
+                    results.add(BulkSmsResponse.SmsResult.failed(i, smsTitle, sms, extracted.getMessage()));
+                    failedCount++;
+                }
+            } catch (Exception e) {
+                results.add(BulkSmsResponse.SmsResult.failed(i, smsTitle, sms, "Error processing SMS: " + e.getMessage()));
+                failedCount++;
+            }
+        }
+
+        BulkSmsResponse response = new BulkSmsResponse();
+        response.setTotalCount(request.getSmsList().size());
+        response.setSuccessCount(successCount);
+        response.setFailedCount(failedCount);
+        response.setResults(results);
+
+        return response;
+    }
+
+    /**
+     * Find pattern for bulk processing - does NOT save failed patterns
+     * Similar to findPattern but without side effects
+     */
+    private ExtractedFieldsResponse findPatternForBulk(String sms, String smsTitle) {
+        // Step 1: Find bank from smsTitle
+        List<Bank> allBanks = bankRepository.findAll();
+        Bank matchedBank = null;
+
+        String upperTitle = smsTitle.toUpperCase();
+        for (Bank bank : allBanks) {
+            if (upperTitle.contains(bank.getBankname().toUpperCase())) {
+                matchedBank = bank;
+                break;
+            }
+        }
+
+        if (matchedBank == null) {
+            return ExtractedFieldsResponse.notMatched("No bank found in SMS title: " + smsTitle);
+        }
+
+        // Step 2: Get approved patterns for this bank only
+        List<Pattern> bankPatterns = patternRepository.findByBankIdAndStatus(matchedBank.getBankId(), "APPROVED");
+
+        if (bankPatterns.isEmpty()) {
+            return ExtractedFieldsResponse.notMatched("No approved patterns found for bank: " + matchedBank.getBankname());
+        }
+
+        // Step 3: Try to match patterns
+        for (Pattern pattern : bankPatterns) {
+            try {
+                java.util.regex.Pattern regex = java.util.regex.Pattern.compile(
+                        pattern.getPattern(),
+                        java.util.regex.Pattern.CASE_INSENSITIVE
+                );
+                Matcher matcher = regex.matcher(sms);
+
+                if (matcher.find()) {
+                    ExtractedFieldsResponse response = buildResponse(matcher, pattern);
+                    response.setPatternId(pattern.getPatternId());
+                    response.setPattern(pattern.getPattern());
+                    
+                    // Set default values from pattern if not extracted
+                    if (response.getBankName() == null) {
+                        response.setBankName(pattern.getBankName() != null ? pattern.getBankName() : matchedBank.getBankname());
+                    }
+                    if (response.getMerchantName() == null && pattern.getMerchantName() != null) {
+                        response.setMerchantName(pattern.getMerchantName());
+                    }
+                    if (response.getTxType() == null && pattern.getTxType() != null) {
+                        response.setTxType(pattern.getTxType());
+                    }
+                    if (response.getMsgType() == null && pattern.getMsgType() != null) {
+                        response.setMsgType(pattern.getMsgType());
+                    }
+                    
+                    // Auto-detect category from merchant name
+                    if (response.getMerchantName() != null) {
+                        String autoCategory = merchantCategoryService.getCategoryForMerchant(response.getMerchantName());
+                        if (autoCategory != null) {
+                            response.setMsgSubtype(autoCategory);
+                        }
+                    }
+                    
+                    return response;
+                }
+            } catch (Exception e) {
+                // Skip invalid patterns
+                continue;
+            }
+        }
+
+        return ExtractedFieldsResponse.notMatched("No matching pattern found for SMS from bank: " + matchedBank.getBankname());
+    }
+
+    /**
+     * Check if an approved pattern already exists for the given SMS
+     * Used by Maker to verify before creating new patterns
+     * Does NOT save failed patterns to DB
+     */
+    public ExtractedFieldsResponse checkPatternExists(String sms, String smsTitle) {
+        return findPatternForBulk(sms, smsTitle);
     }
 }

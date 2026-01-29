@@ -92,8 +92,51 @@ public class PatternService {
         pattern.setTxType(request.getTxType());
         pattern.setMsgType(request.getMsgType());
         pattern.setMsgSubtype(request.getMsgSubtype());
+        pattern.setSmsTitle(request.getSmsTitle());
 
         return patternRepository.save(pattern);
+    }
+
+    /**
+     * Helper method to find or create bank from smsTitle or bankName
+     */
+    private Bank findOrCreateBank(String smsTitle, String bankName) {
+        Bank matchedBank = null;
+        
+        // Step 1: Try to find bank from smsTitle
+        if (smsTitle != null && !smsTitle.trim().isEmpty()) {
+            List<Bank> allBanks = bankRepository.findAll();
+            String upperTitle = smsTitle.toUpperCase();
+            
+            for (Bank bank : allBanks) {
+                if (upperTitle.contains(bank.getBankname().toUpperCase())) {
+                    matchedBank = bank;
+                    break;
+                }
+            }
+        }
+        
+        // Step 2: If not found, try to find from bankName
+        if (matchedBank == null && bankName != null && !bankName.trim().isEmpty()) {
+            String bankNameUpper = bankName.toUpperCase();
+            List<Bank> allBanks = bankRepository.findAll();
+            for (Bank bank : allBanks) {
+                if (bank.getBankname().toUpperCase().contains(bankNameUpper) || 
+                    bankNameUpper.contains(bank.getBankname().toUpperCase())) {
+                    matchedBank = bank;
+                    break;
+                }
+            }
+            
+            // If still not found, create new bank
+            if (matchedBank == null) {
+                Bank newBank = new Bank();
+                newBank.setBankname(bankNameUpper);
+                matchedBank = bankRepository.save(newBank);
+            }
+        }
+        
+        return matchedBank;
     }
 
     /**
@@ -103,6 +146,12 @@ public class PatternService {
         Pattern pattern = patternRepository.findById(patternId)
                 .orElseThrow(() -> new RuntimeException("Pattern not found with id: " + patternId));
         
+        // Find or create bank and update bankId
+        Bank bank = findOrCreateBank(request.getSmsTitle(), request.getBankName());
+        if (bank != null) {
+            pattern.setBankId(bank.getBankId());
+        }
+        
         // Update all fields
         pattern.setPattern(request.getPattern());
         pattern.setSample(request.getSample());
@@ -111,17 +160,25 @@ public class PatternService {
         pattern.setTxType(request.getTxType());
         pattern.setMsgType(request.getMsgType());
         pattern.setMsgSubtype(request.getMsgSubtype());
+        pattern.setSmsTitle(request.getSmsTitle());
         pattern.setStatus("PENDING");
         
         return patternRepository.save(pattern);
     }
 
     /**
-     * Update existing draft pattern (keep as DRAFT)
+     * Update existing pattern and set status to DRAFT
+     * Used when maker saves a pattern (whether it was DRAFT, FAILED, or REJECTED)
      */
     public Pattern updateDraft(Integer patternId, SavePatternRequest request) {
         Pattern pattern = patternRepository.findById(patternId)
                 .orElseThrow(() -> new RuntimeException("Pattern not found with id: " + patternId));
+        
+        // Find or create bank and update bankId
+        Bank bank = findOrCreateBank(request.getSmsTitle(), request.getBankName());
+        if (bank != null) {
+            pattern.setBankId(bank.getBankId());
+        }
         
         // Update all fields
         pattern.setPattern(request.getPattern());
@@ -131,7 +188,8 @@ public class PatternService {
         pattern.setTxType(request.getTxType());
         pattern.setMsgType(request.getMsgType());
         pattern.setMsgSubtype(request.getMsgSubtype());
-        // Keep status as DRAFT
+        pattern.setSmsTitle(request.getSmsTitle());
+        pattern.setStatus("DRAFT"); // Set status to DRAFT
         
         return patternRepository.save(pattern);
     }
@@ -142,6 +200,12 @@ public class PatternService {
     public Pattern updatePattern(UpdatePatternRequest request, String status) {
         Pattern pattern = patternRepository.findById(request.getPatternId())
                 .orElseThrow(() -> new RuntimeException("Pattern not found with id: " + request.getPatternId()));
+        
+        // Find or create bank and update bankId
+        Bank bank = findOrCreateBank(request.getSmsTitle(), request.getBankName());
+        if (bank != null) {
+            pattern.setBankId(bank.getBankId());
+        }
         
         // Update all fields
         if (request.getPattern() != null) {
@@ -164,6 +228,9 @@ public class PatternService {
         }
         if (request.getMsgSubtype() != null) {
             pattern.setMsgSubtype(request.getMsgSubtype());
+        }
+        if (request.getSmsTitle() != null) {
+            pattern.setSmsTitle(request.getSmsTitle());
         }
         
         // Update status

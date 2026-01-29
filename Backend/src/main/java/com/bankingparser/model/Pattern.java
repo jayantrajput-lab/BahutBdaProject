@@ -45,6 +45,9 @@ public class Pattern {
     @Column(name = "msg_subtype")
     private String msgSubtype;
     
+    @Column(name = "sms_title")
+    private String smsTitle;
+    
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "bank_id", insertable = false, updatable = false)

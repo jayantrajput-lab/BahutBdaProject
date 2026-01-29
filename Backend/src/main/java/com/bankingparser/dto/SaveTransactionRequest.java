@@ -19,4 +19,6 @@ public class SaveTransactionRequest {
     private String msgType;
     private String msgSubtype;
     private String date;          // Date string from SMS
+    private String referenceNo;
+    private BigDecimal availableBalance;
 }

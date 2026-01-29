@@ -1,5 +1,7 @@
 package com.bankingparser.controller;
 
+import com.bankingparser.dto.BulkSmsRequest;
+import com.bankingparser.dto.BulkSmsResponse;
 import com.bankingparser.dto.ExtractedFieldsResponse;
 import com.bankingparser.dto.FindPatternRequest;
 import com.bankingparser.dto.SaveTransactionRequest;
@@ -76,5 +78,19 @@ public class UserController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error saving transaction: " + e.getMessage());
         }
+    }
+
+    /**
+     * Bulk SMS parsing - process multiple SMS messages at once
+     * Endpoint: POST /user/bulkParse
+     * Body: { "smsList": [ { "smsTitle": "AD-HDFCBK", "sms": "..." }, ... ] }
+     * 
+     * Returns results for all SMS - both matched and failed
+     * Does NOT save failed patterns to DB
+     */
+    @PostMapping("/bulkParse")
+    public ResponseEntity<BulkSmsResponse> bulkParse(@RequestBody BulkSmsRequest request) {
+        BulkSmsResponse response = regexService.processBulkSms(request);
+        return ResponseEntity.ok(response);
     }
 }

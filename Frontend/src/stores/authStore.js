@@ -92,6 +92,7 @@ export const useAuthStore = create(
       },
 
       logout: () => {
+        localStorage.removeItem('auth-token');
         set({
           user: null,
           isAuthenticated: false,
@@ -102,10 +103,10 @@ export const useAuthStore = create(
       clearError: () => set({ error: null }),
 
       // Admin functions
-      getAllUsers: async () => {
+      getUserCounts: async () => {
         try {
           const token = localStorage.getItem('auth-token');
-          const response = await fetch(`${API_BASE_URL}/admin/users`, {
+          const response = await fetch(`${API_BASE_URL}/admin/userCounts`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -114,46 +115,37 @@ export const useAuthStore = create(
           });
 
           if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || 'Failed to fetch users');
+            throw new Error('Failed to fetch user counts');
           }
 
-          const data = await response.json();
-
-          // Map backend response to expected format
-          return data.map(user => ({
-            id: user.userId,        // Changed from user_id to userId
-            username: user.username,
-            role: user.role,
-          }));
+          return await response.json();
         } catch (error) {
-          console.error('Error fetching users:', error);
-          return [];
+          console.error('Error fetching user counts:', error);
+          return { total: 0, ADMIN: 0, MAKER: 0, CHECKER: 0, USER: 0 };
         }
       },
 
-      updateUserRole: async (userId, newRole) => {
+      createUser: async (username, password, role) => {
         try {
-          console.log(userId, newRole);
           const token = localStorage.getItem('auth-token');
-          const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/role`, {
-            method: 'PUT',
+          const response = await fetch(`${API_BASE_URL}/admin/createUser`, {
+            method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`,
             },
-            body: JSON.stringify({ role: newRole }),
+            body: JSON.stringify({ username, password, role }),
           });
 
           if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || 'Failed to update user role');
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create user');
           }
 
-          return true;
+          return { success: true, data: await response.json() };
         } catch (error) {
-          console.error('Error updating user role:', error);
-          return false;
+          console.error('Error creating user:', error);
+          return { success: false, error: error.message };
         }
       },
     }),

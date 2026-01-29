@@ -23,6 +23,7 @@ public class ExtractedFieldsResponse {
     private String msgSubtype;
     private String date;
     private BigDecimal availableBalance;
+    private String referenceNo;
     
     // Flags to track if values were parsed from SMS or came from pattern defaults
     private Boolean parsedBankName;

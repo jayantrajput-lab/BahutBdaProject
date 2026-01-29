@@ -14,7 +14,9 @@ export const useUserStore = create((set, get) => ({
   // State
   transactions: [],
   extractedFields: null,
+  bulkResults: null,  // For bulk SMS parsing
   isLoading: false,
+  isBulkLoading: false,
   error: null,
 
   // Fetch user's transactions
@@ -92,6 +94,33 @@ export const useUserStore = create((set, get) => ({
 
   // Clear extracted fields
   clearExtractedFields: () => set({ extractedFields: null }),
+
+  // Bulk SMS parsing
+  bulkParse: async (smsList) => {
+    set({ isBulkLoading: true, error: null, bulkResults: null });
+    try {
+      const response = await fetch(`${API_BASE_URL}/user/bulkParse`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ smsList }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to parse SMS');
+      }
+
+      const data = await response.json();
+      set({ bulkResults: data, isBulkLoading: false });
+      return data;
+    } catch (error) {
+      set({ error: error.message, isBulkLoading: false });
+      throw error;
+    }
+  },
+
+  // Clear bulk results
+  clearBulkResults: () => set({ bulkResults: null }),
 
   // Clear error
   clearError: () => set({ error: null }),

@@ -49,6 +49,12 @@ public class Transaction {
     
     private LocalDate date;
     
+    @Column(name = "reference_no")
+    private String referenceNo;
+    
+    @Column(name = "available_balance")
+    private java.math.BigDecimal availableBalance;
+    
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", insertable = false, updatable = false)

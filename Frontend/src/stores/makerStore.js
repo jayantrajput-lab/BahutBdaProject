@@ -13,7 +13,9 @@ const getAuthHeaders = () => {
 export const useMakerStore = create((set, get) => ({
   // State
   extractedFields: null,
+  patternCheckResult: null,  // Result of pattern existence check
   isLoading: false,
+  isChecking: false,  // Loading state for pattern check
   error: null,
   draftPatterns: [],
   rejectedPatterns: [],
@@ -208,6 +210,33 @@ export const useMakerStore = create((set, get) => ({
       throw error;
     }
   },
+
+  // Check if pattern already exists for SMS
+  checkPattern: async (sms, smsTitle) => {
+    set({ isChecking: true, error: null, patternCheckResult: null });
+    try {
+      const response = await fetch(`${API_BASE_URL}/maker/checkPattern`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ sms, smsTitle }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to check pattern');
+      }
+
+      const data = await response.json();
+      set({ patternCheckResult: data, isChecking: false });
+      return data;
+    } catch (error) {
+      set({ error: error.message, isChecking: false });
+      throw error;
+    }
+  },
+
+  // Clear pattern check result
+  clearPatternCheckResult: () => set({ patternCheckResult: null }),
 
   // Clear extracted fields
   clearExtractedFields: () => set({ extractedFields: null }),

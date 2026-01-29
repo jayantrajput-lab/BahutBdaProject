@@ -36,6 +36,8 @@ public class TransactionService {
         transaction.setTxType(request.getTxType());
         transaction.setMsgType(request.getMsgType());
         transaction.setMsgSubtype(request.getMsgSubtype());
+        transaction.setReferenceNo(request.getReferenceNo());
+        transaction.setAvailableBalance(request.getAvailableBalance());
         
         // Parse date string to LocalDate
         if (request.getDate() != null && !request.getDate().isEmpty()) {

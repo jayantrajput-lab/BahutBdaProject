@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Loader2, RefreshCw, Edit, AlertTriangle, XCircle, FileText } from 'lucide-react';
+import { Loader2, RefreshCw, Edit, AlertTriangle, XCircle, FileText, Search, CheckCircle, AlertCircle } from 'lucide-react';
 
 // Transaction type options
 const TX_TYPE_OPTIONS = ['UPI', 'NEFT', 'RTGS', 'IMPS', 'CASH', 'CARD', 'ATM', 'OTHER'];
@@ -59,9 +59,13 @@ const MakerDashboard = () => {
     fetchDrafts,
     fetchRejected, 
     fetchFailed,
-    extractedFields, 
+    checkPattern,
+    extractedFields,
+    patternCheckResult,
     isLoading,
-    clearExtractedFields 
+    isChecking,
+    clearExtractedFields,
+    clearPatternCheckResult
   } = useMakerStore();
   const { user } = useAuthStore();
 
@@ -143,6 +147,25 @@ const MakerDashboard = () => {
     }
   };
 
+  // Check if an approved pattern already exists for this SMS
+  const handleCheckPattern = async () => {
+    if (!smsTitle.trim() || !sms.trim()) {
+      toast.error('Please enter both SMS Title and SMS content');
+      return;
+    }
+
+    try {
+      const result = await checkPattern(sms, smsTitle);
+      if (result.matched) {
+        toast.warning('Pattern already exists for this SMS!');
+      } else {
+        toast.success('No existing pattern found - you can create one!');
+      }
+    } catch (error) {
+      toast.error('Failed to check pattern: ' + error.message);
+    }
+  };
+
   const getPatternData = () => ({
     smsTitle,
     pattern: regexPattern,
@@ -162,16 +185,19 @@ const MakerDashboard = () => {
 
     try {
       if (loadedPatternId) {
-        // Update existing draft
+        // Update existing pattern as draft
         await updateDraft(loadedPatternId, getPatternData());
-        toast.success('Draft updated successfully!');
+        toast.success('Pattern #' + loadedPatternId + ' updated as draft!');
       } else {
         // Create new draft
         await saveDraft(getPatternData());
         toast.success('Draft saved successfully!');
       }
       clearForm();
-      loadDraftPatterns(); // Refresh drafts list
+      // Refresh all lists since pattern may have moved between states
+      loadDraftPatterns();
+      loadRejectedPatterns();
+      loadFailedPatterns();
     } catch (error) {
       toast.error('Failed to save draft');
     }
@@ -185,16 +211,19 @@ const MakerDashboard = () => {
 
     try {
       if (loadedPatternId) {
-        // Submit existing draft for approval (update status to PENDING)
+        // Submit existing pattern for approval (update status to PENDING)
         await submitDraft(loadedPatternId, getPatternData());
-        toast.success('Draft submitted for approval!');
+        toast.success('Pattern #' + loadedPatternId + ' submitted for approval!');
       } else {
         // Create new pattern with PENDING status
         await savePending(getPatternData());
         toast.success('Submitted for approval!');
       }
       clearForm();
-      loadDraftPatterns(); // Refresh drafts list
+      // Refresh all lists since pattern status changed
+      loadDraftPatterns();
+      loadRejectedPatterns();
+      loadFailedPatterns();
     } catch (error) {
       toast.error('Failed to submit for approval');
     }
@@ -211,10 +240,13 @@ const MakerDashboard = () => {
     setSms('');
     setLoadedPatternId(null); // Reset loaded pattern tracking
     clearExtractedFields();
+    clearPatternCheckResult();
   };
 
   // Load a rejected pattern into the builder for editing/resubmitting
   const handleEditRejected = (pattern) => {
+    setLoadedPatternId(pattern.patternId); // Track which pattern we're editing
+    setSmsTitle(pattern.smsTitle || '');
     setRegexPattern(pattern.pattern || '');
     setSms(pattern.sample || '');
     setBankName(pattern.bankName || '');
@@ -224,11 +256,13 @@ const MakerDashboard = () => {
     setMsgSubtype(pattern.msgSubtype || '');
     clearExtractedFields();
     setActiveTab('builder');
-    toast.info('Pattern loaded into builder. Edit and resubmit when ready.');
+    toast.info('Rejected pattern #' + pattern.patternId + ' loaded. Edit and resubmit when ready.');
   };
 
   // Load a failed pattern into the builder
   const handleEditFailed = (pattern) => {
+    setLoadedPatternId(pattern.patternId); // Track which pattern we're editing
+    setSmsTitle(pattern.smsTitle || '');
     setRegexPattern(pattern.pattern || '');
     setSms(pattern.sample || '');
     setBankName(pattern.bankName || '');
@@ -238,12 +272,13 @@ const MakerDashboard = () => {
     setMsgSubtype(pattern.msgSubtype || '');
     clearExtractedFields();
     setActiveTab('builder');
-    toast.info('Failed pattern loaded. Fix and resubmit.');
+    toast.info('Failed pattern #' + pattern.patternId + ' loaded. Fix and resubmit.');
   };
 
   // Load a draft pattern into the builder
   const handleEditDraft = (pattern) => {
     setLoadedPatternId(pattern.patternId); // Track which draft we're editing
+    setSmsTitle(pattern.smsTitle || '');
     setRegexPattern(pattern.pattern || '');
     setSms(pattern.sample || '');
     setBankName(pattern.bankName || '');
@@ -424,6 +459,63 @@ const MakerDashboard = () => {
                   />
                 </div>
 
+                {/* Check Pattern Exists Button */}
+                <div className="p-3 bg-muted/30 rounded-lg border space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Check if Pattern Already Exists</span>
+                  </div>
+                  <Button 
+                    variant="outline"
+                    onClick={handleCheckPattern} 
+                    disabled={isChecking || !smsTitle.trim() || !sms.trim()}
+                    className="w-full"
+                  >
+                    {isChecking ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Checking...
+                      </>
+                    ) : (
+                      <>
+                        <Search className="h-4 w-4 mr-2" />
+                        Check for Existing Pattern
+                      </>
+                    )}
+                  </Button>
+                  
+                  {/* Pattern Check Result */}
+                  {patternCheckResult && (
+                    <div className={`p-3 rounded-lg border ${
+                      patternCheckResult.matched 
+                        ? 'bg-yellow-50 border-yellow-300 dark:bg-yellow-950/30 dark:border-yellow-800' 
+                        : 'bg-green-50 border-green-300 dark:bg-green-950/30 dark:border-green-800'
+                    }`}>
+                      {patternCheckResult.matched ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400">
+                            <AlertCircle className="h-4 w-4" />
+                            <span className="font-medium">Pattern Already Exists!</span>
+                          </div>
+                          <p className="text-sm text-yellow-600 dark:text-yellow-500">
+                            An approved pattern already matches this SMS. Pattern ID: #{patternCheckResult.patternId}
+                          </p>
+                          <div className="text-xs text-muted-foreground mt-2">
+                            <p><strong>Bank:</strong> {patternCheckResult.bankName || '-'}</p>
+                            <p><strong>Merchant:</strong> {patternCheckResult.merchantName || '-'}</p>
+                            <p><strong>Amount:</strong> {patternCheckResult.amount ? `₹${patternCheckResult.amount}` : '-'}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                          <CheckCircle className="h-4 w-4" />
+                          <span className="font-medium">No existing pattern found - you can create one!</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* Match Button */}
                 <Button 
                   onClick={handleMatch} 
@@ -504,6 +596,12 @@ const MakerDashboard = () => {
                         <Label className="text-muted-foreground">Date</Label>
                         <div className="p-2 rounded border bg-muted/50 text-sm">
                           {extractedFields.date || '-'}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground">Reference Number</Label>
+                        <div className="p-2 rounded border bg-muted/50 text-sm">
+                          {extractedFields.referenceNo || '-'}
                         </div>
                       </div>
                       <div className="space-y-1">

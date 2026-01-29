@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Loader2, RefreshCw, ArrowDownCircle, ArrowUpCircle, Wallet, CheckCircle2, Database, Save, Filter } from 'lucide-react';
+import { Loader2, RefreshCw, ArrowDownCircle, ArrowUpCircle, Wallet, CheckCircle2, Database, Save, Filter, Upload, FileText, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -28,6 +28,11 @@ const UserDashboard = () => {
   const [activeTab, setActiveTab] = useState('extract');
   const [isSaving, setIsSaving] = useState(false);
   
+  // Bulk SMS states
+  const [bulkInput, setBulkInput] = useState('');
+  const [bulkSavingIndex, setBulkSavingIndex] = useState(null);
+  const [uploadedFileName, setUploadedFileName] = useState('');
+  
   // Filter states
   const [typeFilter, setTypeFilter] = useState('ALL'); // ALL, DEBIT, CREDIT
   const [categoryFilter, setCategoryFilter] = useState('ALL'); // ALL, FOOD, HEALTH, etc.
@@ -35,11 +40,15 @@ const UserDashboard = () => {
   const { 
     transactions, 
     extractedFields, 
+    bulkResults,
     isLoading, 
+    isBulkLoading,
     fetchTransactions, 
     findPattern,
     saveTransaction,
-    clearExtractedFields 
+    clearExtractedFields,
+    bulkParse,
+    clearBulkResults
   } = useUserStore();
   const { user } = useAuthStore();
 
@@ -81,6 +90,156 @@ const UserDashboard = () => {
     clearExtractedFields();
   };
 
+  // Bulk SMS parsing handlers
+  const handleBulkParse = async () => {
+    if (!bulkInput.trim()) {
+      toast.error('Please enter SMS data');
+      return;
+    }
+
+    try {
+      // Parse the input - expects JSON array format
+      let smsList;
+      try {
+        smsList = JSON.parse(bulkInput);
+        if (!Array.isArray(smsList)) {
+          throw new Error('Input must be a JSON array');
+        }
+      } catch (parseError) {
+        toast.error('Invalid JSON format. Please check the format and try again.');
+        return;
+      }
+
+      // Validate each item has smsTitle and sms
+      for (let i = 0; i < smsList.length; i++) {
+        if (!smsList[i].smsTitle || !smsList[i].sms) {
+          toast.error(`Item ${i + 1} is missing smsTitle or sms`);
+          return;
+        }
+      }
+
+      const result = await bulkParse(smsList);
+      toast.success(`Parsed ${result.totalCount} SMS: ${result.successCount} matched, ${result.failedCount} failed`);
+    } catch (error) {
+      toast.error('Failed to parse SMS: ' + error.message);
+    }
+  };
+
+  const clearBulkForm = () => {
+    setBulkInput('');
+    setUploadedFileName('');
+    clearBulkResults();
+  };
+
+  // Handle file upload
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = ['.json', '.txt'];
+    const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    if (!validTypes.includes(fileExtension)) {
+      toast.error('Please upload a .json or .txt file');
+      return;
+    }
+
+    // Read file content
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target.result;
+        setBulkInput(content);
+        setUploadedFileName(file.name);
+        toast.success(`File "${file.name}" loaded successfully`);
+      } catch (error) {
+        toast.error('Failed to read file');
+      }
+    };
+    reader.onerror = () => {
+      toast.error('Failed to read file');
+    };
+    reader.readAsText(file);
+
+    // Reset file input
+    event.target.value = '';
+  };
+
+  const handleSaveBulkTransaction = async (result) => {
+    if (!result.matched) {
+      toast.error('Cannot save failed transaction');
+      return;
+    }
+
+    setBulkSavingIndex(result.index);
+    try {
+      await saveTransaction({
+        msg: result.sms,
+        bankName: result.bankName,
+        merchantName: result.merchantName,
+        amount: result.amount,
+        accountNumber: result.accountNumber,
+        txType: result.txType,
+        msgType: result.msgType,
+        msgSubtype: result.msgSubtype,
+        date: result.date,
+        referenceNo: result.referenceNo,
+        availableBalance: result.availableBalance,
+      });
+      toast.success('Transaction saved!');
+    } catch (error) {
+      toast.error('Failed to save: ' + error.message);
+    } finally {
+      setBulkSavingIndex(null);
+    }
+  };
+
+  const handleSaveAllMatched = async () => {
+    if (!bulkResults || bulkResults.successCount === 0) {
+      toast.error('No matched transactions to save');
+      return;
+    }
+
+    const matchedResults = bulkResults.results.filter(r => r.matched);
+    let savedCount = 0;
+    let failedCount = 0;
+
+    for (const result of matchedResults) {
+      try {
+        await saveTransaction({
+          msg: result.sms,
+          bankName: result.bankName,
+          merchantName: result.merchantName,
+          amount: result.amount,
+          accountNumber: result.accountNumber,
+          txType: result.txType,
+          msgType: result.msgType,
+          msgSubtype: result.msgSubtype,
+          date: result.date,
+          referenceNo: result.referenceNo,
+          availableBalance: result.availableBalance,
+        });
+        savedCount++;
+      } catch (error) {
+        failedCount++;
+      }
+    }
+
+    toast.success(`Saved ${savedCount} transactions${failedCount > 0 ? `, ${failedCount} failed` : ''}`);
+  };
+
+  // Sample JSON format for bulk input
+  const sampleBulkFormat = `[
+  {
+    "smsTitle": "AD-HDFCBK",
+    "sms": "Alert: Your A/c XX5678 debited for INR 2,500.00 on 10-Jan-26 via UPI to AMAZON. Avl Bal: INR 15,420.50. Ref No: 60123456789"
+  },
+  {
+    "smsTitle": "AD-SBIBNK",
+    "sms": "Your account XX1234 has been credited with Rs.5000 on 11-Jan-26"
+  }
+]`;
+
   const handleSaveTransaction = async () => {
     if (!extractedFields || !extractedFields.matched) {
       toast.error('No valid transaction to save');
@@ -97,8 +256,10 @@ const UserDashboard = () => {
         accountNumber: extractedFields.accountNumber,
         txType: extractedFields.txType,
         msgType: extractedFields.msgType,
-        msgSubtype: extractedFields.msgSubtype,
+        msgSubtype: extractedFields.msgSubtype, // Auto-detected from merchant name
         date: extractedFields.date,
+        referenceNo: extractedFields.referenceNo,
+        availableBalance: extractedFields.availableBalance,
       });
       toast.success('Transaction saved to history!');
       clearForm();
@@ -167,7 +328,7 @@ const UserDashboard = () => {
     <div className="space-y-1">
       <div className="flex items-center gap-2">
         <Label className="text-muted-foreground">{label}</Label>
-        {value && value !== '-' && (
+        {value && value !== '-' ? (
           isParsed ? (
             <span className="flex items-center gap-1 text-xs text-green-600">
               <CheckCircle2 className="h-3 w-3" /> Parsed
@@ -177,6 +338,8 @@ const UserDashboard = () => {
               <Database className="h-3 w-3" /> Pattern Default
             </span>
           )
+        ) : (
+          <span className="text-xs text-muted-foreground">(not extracted)</span>
         )}
       </div>
       <div className={`p-2 rounded border text-sm ${
@@ -184,7 +347,7 @@ const UserDashboard = () => {
           ? isParsed 
             ? 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800' 
             : 'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800'
-          : 'bg-muted/50'
+          : 'bg-muted/50 border-dashed'
       }`}>
         {value || '-'}
       </div>
@@ -198,6 +361,10 @@ const UserDashboard = () => {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="extract">Parse SMS</TabsTrigger>
+            <TabsTrigger value="bulk">
+              <Upload className="h-4 w-4 mr-1" />
+              Bulk Parse
+            </TabsTrigger>
             <TabsTrigger value="history">
               Transactions
               {transactions.length > 0 && (
@@ -296,85 +463,119 @@ const UserDashboard = () => {
                         </div>
                       )}
 
-                      {/* Main extracted values */}
+                      {/* Main extracted values - Show ALL fields */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Amount */}
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <Label className="text-muted-foreground">Amount</Label>
-                            {extractedFields.amount && (
+                            {extractedFields.amount ? (
                               <span className="flex items-center gap-1 text-xs text-green-600">
                                 <CheckCircle2 className="h-3 w-3" /> Parsed
                               </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">(not extracted)</span>
                             )}
                           </div>
-                          <div className="p-3 rounded border bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800 text-lg font-bold">
+                          <div className={`p-3 rounded border text-lg font-bold ${
+                            extractedFields.amount 
+                              ? 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800' 
+                              : 'bg-muted/50 border-dashed'
+                          }`}>
                             {extractedFields.amount ? formatAmount(extractedFields.amount) : '-'}
                           </div>
                         </div>
 
+                        {/* Account Number */}
                         <FieldDisplay 
                           label="Account Number" 
                           value={extractedFields.accountNumber} 
                           isParsed={!!extractedFields.accountNumber}
                         />
                         
+                        {/* Bank Name */}
                         <FieldDisplay 
                           label="Bank Name" 
                           value={extractedFields.bankName}
                           isParsed={extractedFields.parsedBankName !== false}
                         />
                         
+                        {/* Merchant Name */}
                         <FieldDisplay 
                           label="Merchant Name" 
                           value={extractedFields.merchantName}
                           isParsed={extractedFields.parsedMerchantName !== false}
                         />
 
+                        {/* Transaction Type (UPI, NEFT, etc.) */}
                         <FieldDisplay 
-                          label="Transaction Type" 
+                          label="Transaction Type (UPI/NEFT/etc.)" 
                           value={extractedFields.txType}
                           isParsed={extractedFields.parsedTxType !== false}
                         />
 
+                        {/* Message Type (DEBIT/CREDIT) */}
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <Label className="text-muted-foreground">Message Type</Label>
-                            {extractedFields.msgType && (
+                            <Label className="text-muted-foreground">Message Type (Debit/Credit)</Label>
+                            {extractedFields.msgType ? (
                               <span className="flex items-center gap-1 text-xs text-green-600">
                                 <CheckCircle2 className="h-3 w-3" /> Parsed
                               </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">(not extracted)</span>
                             )}
                           </div>
-                          <div className="p-2 rounded border bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800">
-                            {getTypeBadge(extractedFields.msgType)}
+                          <div className={`p-2 rounded border ${
+                            extractedFields.msgType 
+                              ? 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800' 
+                              : 'bg-muted/50 border-dashed'
+                          }`}>
+                            {extractedFields.msgType ? getTypeBadge(extractedFields.msgType) : '-'}
                           </div>
                         </div>
 
+                        {/* Category (Auto-detected from merchant) */}
                         <FieldDisplay 
-                          label="Message Subtype (Category)" 
+                          label="Category (Auto-detected)" 
                           value={extractedFields.msgSubtype}
-                          isParsed={extractedFields.parsedMsgSubtype !== false}
+                          isParsed={!!extractedFields.msgSubtype}
                         />
 
+                        {/* Date */}
                         <FieldDisplay 
                           label="Date" 
                           value={extractedFields.date}
                           isParsed={!!extractedFields.date}
                         />
 
-                        {extractedFields.availableBalance && (
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <Label className="text-muted-foreground">Available Balance</Label>
+                        {/* Reference Number */}
+                        <FieldDisplay 
+                          label="Reference Number" 
+                          value={extractedFields.referenceNo}
+                          isParsed={!!extractedFields.referenceNo}
+                        />
+
+                        {/* Available Balance */}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Label className="text-muted-foreground">Available Balance</Label>
+                            {extractedFields.availableBalance ? (
                               <span className="flex items-center gap-1 text-xs text-green-600">
                                 <CheckCircle2 className="h-3 w-3" /> Parsed
                               </span>
-                            </div>
-                            <div className="p-2 rounded border bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800 text-sm font-semibold">
-                              {formatAmount(extractedFields.availableBalance)}
-                            </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">(not extracted)</span>
+                            )}
                           </div>
-                        )}
+                          <div className={`p-2 rounded border text-sm font-semibold ${
+                            extractedFields.availableBalance 
+                              ? 'bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800' 
+                              : 'bg-muted/50 border-dashed'
+                          }`}>
+                            {extractedFields.availableBalance ? formatAmount(extractedFields.availableBalance) : '-'}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Summary section with Save button */}
@@ -399,7 +600,7 @@ const UserDashboard = () => {
                             )}
                           </Button>
                         </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                           <div>
                             <span className="text-muted-foreground">Amount:</span>
                             <p className="font-semibold">{formatAmount(extractedFields.amount)}</p>
@@ -416,6 +617,10 @@ const UserDashboard = () => {
                             <span className="text-muted-foreground">To/From:</span>
                             <p className="font-semibold">{extractedFields.merchantName || '-'}</p>
                           </div>
+                          <div>
+                            <span className="text-muted-foreground">Category:</span>
+                            <p className="font-semibold">{extractedFields.msgSubtype || '-'}</p>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -427,6 +632,251 @@ const UserDashboard = () => {
                       </p>
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* Bulk Parse Tab */}
+          <TabsContent value="bulk" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Upload className="h-5 w-5" />
+                  Bulk SMS Parser
+                </CardTitle>
+                <CardDescription>
+                  Parse multiple SMS messages at once. Enter SMS data in JSON format.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* File Upload Section */}
+                <div className="space-y-3">
+                  <Label>Upload SMS File (.json or .txt)</Label>
+                  <div className="flex items-center gap-3">
+                    <label className="flex-1">
+                      <div className={`
+                        flex items-center justify-center gap-2 p-4 border-2 border-dashed rounded-lg cursor-pointer
+                        transition-colors hover:border-primary hover:bg-muted/50
+                        ${uploadedFileName ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-muted-foreground/25'}
+                      `}>
+                        {uploadedFileName ? (
+                          <>
+                            <CheckCircle className="h-5 w-5 text-green-600" />
+                            <span className="text-sm font-medium text-green-600">{uploadedFileName}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-5 w-5 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">
+                              Click to upload or drag and drop
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <input
+                        type="file"
+                        accept=".json,.txt"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setBulkInput(sampleBulkFormat)}
+                      className="whitespace-nowrap"
+                    >
+                      <FileText className="h-4 w-4 mr-1" />
+                      Load Sample
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Preview/Edit Section */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="bulkInput">
+                      {uploadedFileName ? 'File Content (editable)' : 'Or paste JSON directly'}
+                    </Label>
+                    {bulkInput && (
+                      <span className="text-xs text-muted-foreground">
+                        {(() => {
+                          try {
+                            const parsed = JSON.parse(bulkInput);
+                            return `${Array.isArray(parsed) ? parsed.length : 0} SMS entries`;
+                          } catch {
+                            return 'Invalid JSON';
+                          }
+                        })()}
+                      </span>
+                    )}
+                  </div>
+                  <Textarea
+                    id="bulkInput"
+                    value={bulkInput}
+                    onChange={(e) => {
+                      setBulkInput(e.target.value);
+                      if (uploadedFileName) setUploadedFileName(''); // Clear filename if manually edited
+                    }}
+                    placeholder={sampleBulkFormat}
+                    className="min-h-[180px] font-mono text-xs"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Format: JSON array with objects containing "smsTitle" and "sms" fields
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={handleBulkParse} 
+                    disabled={isBulkLoading || !bulkInput.trim()}
+                    className="flex-1"
+                  >
+                    {isBulkLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Parsing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Parse All SMS
+                      </>
+                    )}
+                  </Button>
+                  <Button variant="outline" onClick={clearBulkForm}>
+                    Clear
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Bulk Results Display */}
+            {bulkResults && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Parsing Results</CardTitle>
+                      <CardDescription className="flex items-center gap-4 mt-2">
+                        <span className="flex items-center gap-1">
+                          <Badge variant="secondary">{bulkResults.totalCount}</Badge> Total
+                        </span>
+                        <span className="flex items-center gap-1 text-green-600">
+                          <CheckCircle className="h-4 w-4" />
+                          <Badge className="bg-green-600">{bulkResults.successCount}</Badge> Matched
+                        </span>
+                        <span className="flex items-center gap-1 text-red-600">
+                          <XCircle className="h-4 w-4" />
+                          <Badge variant="destructive">{bulkResults.failedCount}</Badge> Failed
+                        </span>
+                      </CardDescription>
+                    </div>
+                    {bulkResults.successCount > 0 && (
+                      <Button 
+                        onClick={handleSaveAllMatched}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <Save className="h-4 w-4 mr-2" />
+                        Save All Matched ({bulkResults.successCount})
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {bulkResults.results.map((result) => (
+                      <div
+                        key={result.index}
+                        className={`p-4 rounded-lg border ${
+                          result.matched 
+                            ? 'bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-800' 
+                            : 'bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-800'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline">#{result.index + 1}</Badge>
+                            {result.matched ? (
+                              <Badge className="bg-green-600 gap-1">
+                                <CheckCircle className="h-3 w-3" /> Matched
+                              </Badge>
+                            ) : (
+                              <Badge variant="destructive" className="gap-1">
+                                <XCircle className="h-3 w-3" /> Failed
+                              </Badge>
+                            )}
+                            <span className="text-sm font-medium">{result.smsTitle}</span>
+                          </div>
+                          {result.matched && (
+                            <Button
+                              size="sm"
+                              onClick={() => handleSaveBulkTransaction(result)}
+                              disabled={bulkSavingIndex === result.index}
+                              className="bg-green-600 hover:bg-green-700"
+                            >
+                              {bulkSavingIndex === result.index ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <>
+                                  <Save className="h-3 w-3 mr-1" />
+                                  Save
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+
+                        {result.matched ? (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                            <div>
+                              <span className="text-muted-foreground">Amount:</span>
+                              <p className="font-bold text-lg">{formatAmount(result.amount)}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Type:</span>
+                              <p>{result.msgType ? getTypeBadge(result.msgType) : '-'}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Merchant:</span>
+                              <p className="font-medium">{result.merchantName || '-'}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Category:</span>
+                              <p><Badge variant="secondary">{result.msgSubtype || '-'}</Badge></p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Bank:</span>
+                              <p className="font-medium">{result.bankName || '-'}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Account:</span>
+                              <p className="font-medium">{result.accountNumber || '-'}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Date:</span>
+                              <p className="font-medium">{result.date || '-'}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Tx Type:</span>
+                              <p><Badge variant="outline">{result.txType || '-'}</Badge></p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start gap-2 text-red-600">
+                            <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <p className="font-medium">{result.message}</p>
+                              <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                SMS: {result.sms}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             )}
@@ -612,7 +1062,7 @@ const UserDashboard = () => {
                               </Badge>
                             )}
                           </div>
-                          <div className="text-sm text-muted-foreground">
+                          <div className="text-sm text-muted-foreground grid grid-cols-2 gap-x-4">
                             {transaction.merchantName && (
                               <p><strong>Merchant:</strong> {transaction.merchantName}</p>
                             )}
@@ -624,6 +1074,12 @@ const UserDashboard = () => {
                             )}
                             {transaction.date && (
                               <p><strong>Date:</strong> {transaction.date}</p>
+                            )}
+                            {transaction.referenceNo && (
+                              <p><strong>Ref No:</strong> {transaction.referenceNo}</p>
+                            )}
+                            {transaction.availableBalance && (
+                              <p><strong>Avl Bal:</strong> {formatAmount(transaction.availableBalance)}</p>
                             )}
                           </div>
                         </div>

@@ -51,22 +51,11 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                // Public endpoints
                 .requestMatchers("/auth/**", "/h2-console/**").permitAll()
-                
-                // Admin routes - accessible by ADMIN only
                 .requestMatchers("/admin/**").hasRole("ADMIN")
-                
-                // Maker routes - accessible by MAKER only
                 .requestMatchers("/maker/**").hasRole("MAKER")
-                
-                // Checker routes - accessible by CHECKER only
                 .requestMatchers("/checker/**").hasRole("CHECKER")
-                
-                // User routes - accessible by everyone (authenticated users)
                 .requestMatchers("/user/**").authenticated()
-                
-                // All other requests need authentication
                 .anyRequest().authenticated()
             )
             .sessionManagement(session -> session

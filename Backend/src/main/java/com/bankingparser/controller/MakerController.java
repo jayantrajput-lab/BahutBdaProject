@@ -2,6 +2,7 @@ package com.bankingparser.controller;
 
 import com.bankingparser.dto.ExtractFieldsRequest;
 import com.bankingparser.dto.ExtractedFieldsResponse;
+import com.bankingparser.dto.FindPatternRequest;
 import com.bankingparser.dto.SavePatternRequest;
 import com.bankingparser.model.Pattern;
 import com.bankingparser.service.PatternService;
@@ -122,5 +123,19 @@ public class MakerController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error updating draft: " + e.getMessage());
         }
+    }
+
+    /**
+     * Check if an approved pattern already exists for the given SMS
+     * Endpoint: POST /maker/checkPattern
+     * Body: { "sms": "...", "smsTitle": "AD-SBIBNK-S" }
+     * 
+     * Returns matched=true if pattern exists, matched=false if no pattern found
+     * Does NOT save failed patterns to DB
+     */
+    @PostMapping("/checkPattern")
+    public ResponseEntity<ExtractedFieldsResponse> checkPattern(@RequestBody FindPatternRequest request) {
+        ExtractedFieldsResponse response = regexService.checkPatternExists(request.getSms(), request.getSmsTitle());
+        return ResponseEntity.ok(response);
     }
 }

@@ -104,6 +104,7 @@ const CheckerDashboard = () => {
     patternId: loadedPattern?.patternId,
     pattern: regexPattern,
     sample: sms,
+    smsTitle: smsTitle,
     bankName: bankName,
     merchantName: merchantName,
     txType: txType,
@@ -161,6 +162,7 @@ const CheckerDashboard = () => {
   // Load a pending pattern into the review form
   const handleLoadForReview = (pattern) => {
     setLoadedPattern(pattern);
+    setSmsTitle(pattern.smsTitle || '');
     setRegexPattern(pattern.pattern || '');
     setSms(pattern.sample || '');
     setBankName(pattern.bankName || '');
@@ -170,7 +172,7 @@ const CheckerDashboard = () => {
     setMsgSubtype(pattern.msgSubtype || '');
     clearExtractedFields();
     setActiveTab('review');
-    toast.info('Pattern loaded for review. You can edit fields before approving or rejecting.');
+    toast.info('Pattern #' + pattern.patternId + ' loaded for review.');
   };
 
   return (
@@ -471,6 +473,12 @@ const CheckerDashboard = () => {
                         <Label className="text-muted-foreground">Date</Label>
                         <div className="p-2 rounded border bg-muted/50 text-sm">
                           {extractedFields.date || '-'}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground">Reference Number</Label>
+                        <div className="p-2 rounded border bg-muted/50 text-sm">
+                          {extractedFields.referenceNo || '-'}
                         </div>
                       </div>
                       <div className="space-y-1">

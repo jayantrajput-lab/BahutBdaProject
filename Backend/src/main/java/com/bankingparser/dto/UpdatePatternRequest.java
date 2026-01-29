@@ -16,4 +16,5 @@ public class UpdatePatternRequest {
     private String txType;
     private String msgType;
     private String msgSubtype;
+    private String smsTitle;
 }
